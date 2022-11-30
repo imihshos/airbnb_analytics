@@ -1,0 +1,99 @@
+---
+title: "Singapore Airbnb"
+output: 
+  flexdashboard::flex_dashboard:
+    orientation: columns
+    vertical_layout: scroll
+---
+
+```{r setup, include=FALSE}
+
+#Libraries
+library(flexdashboard)
+library(flextable)
+
+# Libraries
+library(DBI) 
+library(RSQLite)
+library(tidyr)
+library(tibble)
+library(stringr)
+library(dbplyr)
+library(dplyr, warn.conflicts = FALSE)
+library(leaflet)
+library(lubridate)
+library(ggplot2)
+library(gridExtra)
+library(tidyquant)
+library(officer)
+library(zoo)
+library(gt)
+```
+
+```{r}
+#Database Connection
+con <- dbConnect(RSQLite::SQLite(), "../db/airdb.SQLite")
+```
+
+```{r}
+# load host_info table 
+res_host_info <- dbSendQuery(con, "select * from host_info")  
+host_info <- fetch(res_host_info) 
+dbClearResult(res_host_info)
+
+# load listing table
+res_listing <- dbSendQuery(con, "select * from listing")
+listing <- fetch(res_listing)
+dbClearResult(res_listing)
+```
+
+
+# Overview
+
+Column {data-width=220}
+-----------------------------------------------------------------------
+
+### Basic Info
+
+```{r}
+
+```
+
+***
+
+Hello! Welcome to the Airbnb dashboard! Airbnb is a online marketplace for lodging, primarily for vacation rentals, and tourism activities. It allows users to connect directly with property owners and managers for affordable and flexible rentals, and allows property owners to easily monetize their properties on a much more flexible basis than conventional rentals. This dashboard was created to help people users stats, listings and reviews. The data used for this dashboard is specifically from Singapore.
+
+
+### Number of room listings
+
+```{r}
+# Number of room listings
+number_of_listings <-
+  listing %>%
+  select(id) %>%
+  distinct() %>%
+  count()
+valueBox(number_of_listings[[1]], caption = "Number of Listings", icon = "fa-tag", color = "success")
+```
+
+### Number of hosts
+
+```{r}
+# Number of hosts
+number_of_hosts <- 
+    host_info %>% 
+    select(host_id) %>% 
+    count()
+valueBox(number_of_hosts[[1]], caption = "Number of Hosts", icon = "fa-home")
+```
+
+
+### Number of reviews
+
+```{r}
+number_of_reviews <- listing %>% 
+  select(review_scores_rating) %>%
+  drop_na() %>% 
+  count()
+valueBox(number_of_reviews[[1]], caption = "Number of Reviews", icon = "fa-thumbs-up", color = "info")
+```
