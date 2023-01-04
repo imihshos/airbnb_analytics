@@ -1,0 +1,713 @@
+---
+title: "Airbnb Data Analytics - SG"
+author: "Soh Si Ying, Tiffany Tan"
+date: "2022-09-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning= FALSE, message=FALSE)
+```
+
+## Libraries and Database Connection
+#### Libraries
+
+First, we load the necessary libraries required for our data analysis.
+```{r}
+library(DBI) 
+library(RSQLite)
+library(tidyr)
+library(tibble)
+library(stringr)
+library(dbplyr)
+library(dplyr, warn.conflicts = FALSE)
+library(leaflet)
+library(lubridate)
+library(ggplot2)
+library(grid)
+library(gridExtra)
+library(tidyquant)
+library(zoo)
+library(ggthemes)
+library(knitr)
+library(scales)
+library(rmarkdown)
+```
+
+#### Database Connection
+
+Next, we connect to the database that we've set up. 
+
+```{r}
+path_root=".."
+path_db=file.path(path_root, "db")
+con <- DBI::dbConnect(RSQLite::SQLite(), file.path(path_db, "airdb.SQLite"))
+
+```
+
+#### Data Loading
+
+We load the data into R from our database by querying. 
+
+```{r}
+# load host_info table 
+res_host_info <- dbSendQuery(con, "select * from host_info")  
+host_info <- fetch(res_host_info) 
+dbClearResult(res_host_info)
+
+# load listing table
+res_listing <- dbSendQuery(con, "select * from listing")
+listing <- fetch(res_listing)
+dbClearResult(res_listing)
+```
+
+## Questions
+
+### Room Listing
+
+
+#### 1. What is the most common room type available?
+
+To find the most common room type available, we select the `room_type` and `has_availability`. `has_availability` is a logical indicator of whether a particular room is available, with 1 indicating that room is available and 0 indicating that room is unavailable. We then filter to get the rooms that are available, group by room type, summarise by counting the number of available rooms for each room type and rank the result in descending order. 
+
+```{r}
+room_type_available <- listing %>% select(room_type, has_availability) %>% filter(has_availability==1) %>% group_by(room_type) %>% summarise(count=n()) %>% arrange(desc(count))
+
+room_type_available_table <- room_type_available %>% kable(align = c("l", "c"))
+room_type_available_table
+```
+
+For a clearer visual representation of room type availability, we plotted the following bar graph. 
+
+```{r}
+room_type_available_plot<- room_type_available %>% ggplot(aes(x=room_type %>% reorder(-count), y=count)) +
+  geom_bar(stat="identity", position = "dodge", fill="lightpink3") +
+  labs(title = "Most Common Room Type Available", x="Room Type", y="Rooms Available") +
+  geom_text(aes(label = count), vjust = -0.5, size = 3) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 9), axis.title = element_text(size = 10), plot.title=element_text(size=16, hjust=0.5, face="bold"))
+
+room_type_available_plot
+```
+
+
+From the bar graph, we can see that `Private room` is the room type with the most number of rooms available, followed by `Entire home/apt`. 
+
+We then look at the availability of room types over periods of 30, 60, 90 and 365 days, which would allow us to have a better understanding of the average amount of nights available per room type across the different periods. 
+
+```{r}
+availability_periods <- c('availability_30', 'availability_60', 
+                          'availability_90', 'availability_365')
+
+for(column in availability_periods){
+    tables<- paste('q1',column, sep='_')
+    assign(tables,listing%>%
+               select(room_type,column)%>%
+               group_by(room_type)%>%
+               summarise(mean=mean(.data[[column]])))
+}
+
+q1_availability_30_plot <- q1_availability_30 %>% ggplot(aes(x=room_type %>% reorder(-mean), y=mean)) +
+  geom_bar(stat="identity", position = "dodge", fill="lightpink3") +
+  labs(title = "30 Days", x="Room Type", y="Rooms Available") +
+  geom_text(aes(label = round(mean,2)), vjust = -0.25, size = 2) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 7 ), axis.title = element_text(size = 8), plot.title = element_text(size=10))
+
+q1_availability_60_plot <- q1_availability_60 %>% ggplot(aes(x=room_type %>% reorder(-mean), y=mean)) +
+  geom_bar(stat="identity", position = "dodge", fill="lightpink3") +
+  labs(title = "60 Days", x="Room Type", y="Rooms Available") +
+  geom_text(aes(label = round(mean,2)), vjust = -0.25, size = 2) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 7 ), axis.title = element_text(size = 8), plot.title = element_text(size=10))
+
+q1_availability_90_plot <- q1_availability_90 %>% ggplot(aes(x=room_type %>% reorder(-mean), y=mean)) +
+  geom_bar(stat="identity", position = "dodge", fill="lightpink3") +
+  labs(title = "90 Days", x="Room Type", y="Rooms Available") +
+  geom_text(aes(label = round(mean,2)), vjust = -0.25, size = 2) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 7 ), axis.title = element_text(size = 8), plot.title = element_text(size=10))
+
+q1_availability_365_plot <- q1_availability_365 %>% ggplot(aes(x=room_type %>% reorder(-mean), y=mean)) +
+  geom_bar(stat="identity", position = "dodge", fill="lightpink3") +
+  labs(title = "365 Days", x="Room Type", y="Rooms Available") +
+  geom_text(aes(label = round(mean,2)), vjust = -0.25, size = 2) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 7 ), axis.title = element_text(size = 8), plot.title = element_text(size=10))
+
+grid.arrange(q1_availability_30_plot, 
+             q1_availability_60_plot, 
+             q1_availability_90_plot,
+             q1_availability_365_plot, 
+             ncol = 2, heights=c(3,3),
+             top = textGrob("Most Common Room Type Available",gp=gpar(font=2, fontsize=16)))
+```
+
+
+For 30, 60 and 90 days, `Private room` is the room type with the highest average availability and since `Private room` is also the room type with the most number of available units, we can conclude that this room type has the lowest demand for periods of 30, 60 and 90 days. 
+
+<br />
+
+#### 2. What is the top and bottom 10 property types based on average price?
+
+We first select `property_type` and `price`, group by property type and summarise by average price of each property type. 
+To find the top 10 property types based on average price, we rank the result in descending order and filter for the top 10 rows. 
+
+```{r}
+top10_property_type_price <- listing %>% select(property_type, price) %>% group_by(property_type) %>% summarise(price=mean(price)) %>% arrange(desc(price)) %>% top_n(10) 
+
+top10_property_type_price_table<- top10_property_type_price%>% kable(align = c("l", "c"),format.args = list(big.mark = ","), digits = 2)
+
+top10_property_type_price_table
+```
+
+Then, we plot the top 10 property types based on average price for a clearer visual representation.
+
+```{r}
+top10_property_type_price_plot<- top10_property_type_price %>% ggplot(aes(y=property_type %>% reorder(price), x=price)) +
+  geom_bar(stat="identity", position = "dodge", fill="lightpink3") +
+  labs(title = "Top 10 Most Expensive Property Type ", y="Property Type", x="Average Price") +
+  geom_text(aes(label = paste('$',formatC(price, big.mark=',',format="f", digits=2))), hjust = -0.1, size = 3)+
+  theme_minimal() +
+  theme(axis.text = element_text(size = 9), axis.title = element_text(size = 10), plot.title=element_text(size=16, hjust=0.5, face="bold")) + 
+  expand_limits(x = 1500)
+
+top10_property_type_price_plot
+```
+
+To find the bottom 10 property types based on average price, we rank the result in ascending order and filter for the bottom 10 rows. 
+
+```{r}
+bottom10_property_type_price <- listing %>% select(property_type, price) %>% group_by(property_type) %>% summarise(price=mean(price)) %>% arrange(price) %>% top_n(-10) 
+bottom10_property_type_price_table <- bottom10_property_type_price %>% kable(align = c("l", "c"), format.args = list(big.mark = ","),digits = 2)
+
+bottom10_property_type_price_table
+```
+
+Then, we plot the bottom 10 property types based on average price for a clearer visual representation.
+
+```{r}
+bottom10_property_type_price_plot<- bottom10_property_type_price %>% ggplot(aes(y=property_type %>% reorder(price), x=price)) +
+  geom_bar(stat="identity", position = "dodge", fill="lightpink3") +
+  labs(title = "Top 10 Cheapest Property Type ", y="Property Type", x="Average Price") +
+  geom_text(aes(label = paste('$',formatC(price, big.mark=',',format="f", digits=2))), hjust = -0.1, size = 3,) +
+  theme_minimal() +
+  theme(axis.text = element_text(size = 9), axis.title = element_text(size = 10), plot.title=element_text(size=16, hjust=0.5, face="bold")) + 
+  expand_limits(x = 70)
+
+bottom10_property_type_price_plot
+```
+
+
+From the plots, we can observe that property types that allow guests to have the entire place to themselves are the most expensive, while shared property types are generally the cheapest.
+
+<br />
+
+#### 3. What is the top and bottom 10 property types based on review score?
+
+We first select `property_type` and `review_scores_rating`, group by property type and summarise by average price of each property type. 
+
+To find the top 10 property types based on review score, we rank the result in descending order and filter for the top 10 rows.
+
+```{r}
+top10_property_type_review<-listing %>% select(property_type, review_scores_rating) %>% group_by(property_type) %>% summarise(review_scores_rating=mean(review_scores_rating)) %>% arrange(desc(review_scores_rating)) %>% top_n(10) 
+
+top10_property_type_review_table <- top10_property_type_review%>% kable(align = c("l", "c"),format.args = list(big.mark = ","),digits = 2)
+
+top10_property_type_review_table
+```
+
+Next, we plot the top 10 property types based on review score for a clearer visual representation.
+
+```{r}
+top10_property_type_review_plot<- top10_property_type_review %>% ggplot(aes(y=property_type %>% reorder(review_scores_rating), x=review_scores_rating)) +
+  geom_bar(stat="identity", position = "dodge", fill="lightpink3") +
+  labs(title = "Top 10 Property Type by Rating ", y="Property Type", x="Average Rating") +
+  geom_text(aes(label = round(review_scores_rating,2)), hjust = -0.2, size = 3)+
+  theme_minimal() +
+  theme(axis.text = element_text(size = 9), axis.title = element_text(size = 10), plot.title=element_text(size=16, hjust=0.5, face="bold"))+ 
+  expand_limits(x = 5.5)
+
+top10_property_type_review_plot
+```
+
+To find the bottom 10 property types based on review score, we rank the result in ascending order and filter for the bottom 10 rows. 
+
+```{r}
+bottom10_property_type_review<-listing %>% select(property_type, review_scores_rating) %>% group_by(property_type) %>% summarise(review_scores_rating=mean(review_scores_rating)) %>% arrange(review_scores_rating) %>% top_n(10) 
+
+bottom10_property_type_review_table <- bottom10_property_type_review %>% kable(align = c("l", "c"),format.args = list(big.mark = ","),digits = 2)
+
+bottom10_property_type_review_table
+```
+
+We then plot the bottom 10 property types based on review score for a clearer visual representation
+
+```{r}
+bottom10_property_type_review_plot<- bottom10_property_type_review %>% ggplot(aes(y=property_type %>% reorder(review_scores_rating), x=review_scores_rating)) +
+  geom_bar(stat="identity", position = "dodge", fill="lightpink3") +
+  labs(title = "Bottom 10 Property Type by Rating ", y="Property Type", x="Average Rating") +
+  geom_text(aes(label = round(review_scores_rating,2)), hjust = -0.2, size = 3)+
+  theme_minimal() +
+  theme(axis.text = element_text(size = 9), axis.title = element_text(size = 10), plot.title=element_text(size=16, hjust=0.5, face="bold")) + 
+  expand_limits(x = 5)
+
+bottom10_property_type_review_plot
+```
+
+<br />
+
+
+#### 4. What is the most common amenities provided?
+
+In the listing data, all available amenities are listed together under the `amenities` column for each unit. 
+
+To count the number of occurrence for each amenity type, we first get the maximum number of amenities in a single unit so that we can create enough columns for each amenity. 
+Using the `separate`function, we populate the columns created with all amenities in a unit. Each column will now consist of only an amenity. 
+Using `pivot_longer`, we prepare our data into the format that would allow the occurrence of amenity types to be counted.
+Finally, we obtain the number of occurrence of each amenity by grouping by amenity and summarising by the count of each amenity, and arranging the result in descending order to get the most common ammenity. 
+```{r}
+maxcols <- max(str_count(listing$amenities, ","))+1
+newcols <- paste("col", 1:maxcols)
+amenities_separated <- listing %>% select(amenities) %>% separate(col = amenities, sep= ",", into=newcols,remove = FALSE)
+amenities_longformat <- pivot_longer(data=amenities_separated, cols = 'col 1':'col 69', names_to = "col_number", values_to = "separated_amenities")
+amenities_count <- amenities_longformat %>% select(separated_amenities) %>% group_by(separated_amenities) %>% summarise(count=n()) %>% na.omit() %>% arrange(desc(count)) %>% paged_table()
+
+amenities_count
+
+```
+
+<br />
+
+
+#### 5. Is there any correlation between room price and the review score?
+
+Rooms are given a review score based on the following dimensions: 
+
+  1. Overall Rating
+  2. Accuracy
+  3. Cleanliness
+  4. Check-in
+  5. Communication
+  6. Location
+  7. Value
+
+As such, we start by selecting the `price` column, as well as all the columns that represents the review score for the dimensions mentioned above. Rows that are missing review score are dropped.  
+```{r}
+reviewscores_price_table <- listing %>% select(price, review_scores_accuracy, review_scores_cleanliness, review_scores_checkin, review_scores_communication, review_scores_location, review_scores_rating, review_scores_value) %>% drop_na()
+
+```
+
+
+Next we define a function for the correlation plot to simplify the plotting of diagrams since we have to plot 7 correlation graph, one for each dimension mentioned above. 
+```{r}
+correlation_plot <- function(df, y_col, title){
+    c_plot <- df %>% 
+    ggplot(aes(x = price, y = y_col)) +
+    geom_jitter(alpha = 0.5, color="lightpink3") + 
+    scale_x_log10(label = number_format(big.mark = ",")) +
+    labs(x = "Price", y = title, title = title) + 
+    theme(axis.text = element_text(size = 8), axis.title = element_text(size = 8), plot.title = element_text(size=10))
+    theme_minimal()
+    
+    return(c_plot)
+}
+```
+
+We then plot the correlation graphs of price vs each dimension using the `correlation_plot()` function we have created. The graphs are arranged using the `grid.arrange()` function to combine and align multiple plots.  
+```{r}
+c_plot_rating<- correlation_plot(reviewscores_price_table, reviewscores_price_table$review_scores_rating, "Rating")
+c_plot_accuracy<- correlation_plot(reviewscores_price_table, reviewscores_price_table$review_scores_accuracy, "Accuracy")
+c_plot_cleanliness<- correlation_plot(reviewscores_price_table, reviewscores_price_table$review_scores_cleanliness, "Cleanliness")
+c_plot_checkin<- correlation_plot(reviewscores_price_table, reviewscores_price_table$review_scores_checkin, "Check-in")
+c_plot_communication<- correlation_plot(reviewscores_price_table, reviewscores_price_table$review_scores_communication, "Communication")
+c_plot_location<- correlation_plot(reviewscores_price_table, reviewscores_price_table$review_scores_location, "Location")
+c_plot_value<- correlation_plot(reviewscores_price_table, reviewscores_price_table$review_scores_value, "Value")
+
+c_plot_rating <- c_plot_rating + labs(title = "Rating vs Price") + theme(plot.title = element_text(size=16, hjust = 0.5, face="bold"))
+  
+  
+  
+c_plot_rating
+grid.arrange(c_plot_accuracy, 
+             c_plot_cleanliness,
+             c_plot_checkin,
+             ncol=3,
+             top = textGrob("Review Score vs Price",gp=gpar(font=2, fontsize=16)))
+grid.arrange(c_plot_communication, 
+             c_plot_location,
+             c_plot_value,
+             ncol=3,
+             top = textGrob("Review Score vs Price",gp=gpar(font=2, fontsize=16)))
+```
+
+Although the plots appear noisy, we can observe that properties that have high rental price generally have high ratings for all dimensions. Also, lower-priced properties have a tendency to receive lower ratings across all dimensions. However, that being said, there are also plenty of lower-priced properties that have high ratings.
+
+<br />
+
+#### 6. Room listing geographical distribution
+
+To see the geographical distribution of properties for rent, we create an interactive map plot using the `longitude` and `latitude` data available. 
+```{r}
+geog_data <- listing %>%left_join(host_info, by = "host_id") %>% select(id, host_name, listing_url, name, latitude, longitude, price,review_scores_rating, number_of_reviews, neighbourhood_cleansed) %>%
+replace_na(list(name = "No Name", host_name = "No Host Name"))
+
+content<-paste0("<b><a href=", geog_data$listing_url, ">", geog_data$name,"</a></b><br>",
+                "Listing ID: ", geog_data$id, "<br>",
+                "Neighbourhood: ", geog_data$neighbourhood_cleansed, "<br>",
+                "Host Name: ", geog_data$host_name,"<br>",
+                "Price: ", geog_data$price, "<br>",
+                "Review Score Rating: ", ifelse(is.na(geog_data$review_scores_rating), "No Rating Yet",geog_data$review_scores_rating), "<br>")
+
+room_listing_map<- leaflet(data=geog_data) %>% addProviderTiles(providers$OpenStreetMap) %>% addMarkers(lng = ~longitude,lat = ~latitude, clusterOptions = markerClusterOptions(), popup=content)
+
+room_listing_map
+```
+
+### Host
+
+#### 7. Who are the top 10 host based on revenue?
+We begin by joining together the two tables on the column `host_id`. We then select the necessary columns and create a new column called `total_earnings` which consists of the formula:
+
+<center> _total_earnings = price * review_scores_rating * minimum_nights_ </center>
+
+We then remove the columns containing `NA` values and perform a `count` after grouping by the attributes `host_id` and `host_name`. At the same time, we calculate the average price and then finally, select the columns we want and arrange in descending order by the `total_earnings`.
+
+```{r}
+q7 <- listing %>% 
+    left_join(host_info, by = "host_id") %>% 
+    select(host_id, host_name, price, 
+           review_scores_rating, minimum_nights, number_of_reviews) %>%
+    mutate(total_earnings = price * review_scores_rating * minimum_nights) %>% 
+    drop_na() %>% 
+    group_by(host_id, host_name) %>% 
+    summarise(number_of_listing = n(), sum_total_earnings = sum(total_earnings)) %>% 
+    arrange(desc(sum_total_earnings))
+```
+
+We create two plots instead of just one to examine the top posts by revenue. The first plot examines the top 10 hosts by the number of listings they have. The second plot, depicts the top 10 hosts by their total earnings. 
+
+We plot the results using a similar process for both plots with the main difference being that the y-axis for the `top_host_by_listing` plot is ordered by the `number_of_listing` column, While the `top_host_by_earning` is ordered by the `total_earnings` column
+
+```{r}
+top_host_by_listing <- 
+    q7 %>% 
+    arrange(desc(number_of_listing)) %>% 
+    select(host_name, number_of_listing) %>% 
+    distinct() %>% 
+    head(10) %>% 
+    ggplot(aes(x = number_of_listing, y = host_name %>% reorder(number_of_listing))) + 
+    geom_col(fill = "lightpink3") +
+    labs(
+        title    = "Top Host by # of Listings",
+        x        = "Number of Listing",
+        y        = "Host Name"
+    ) + 
+    theme_minimal() + 
+    theme(axis.text = element_text(size = 9), axis.title = element_text(size = 10), plot.title=element_text(size=10, hjust=0.5, face="bold"))
+
+top_host_by_earning <- 
+    q7 %>% 
+    select(host_name, sum_total_earnings) %>%
+    arrange(desc(sum_total_earnings)) %>%
+    head(10) %>% 
+    ggplot(aes(x = sum_total_earnings, y = host_name %>% reorder(sum_total_earnings))) + 
+    geom_col(fill = "lightpink3") + 
+    scale_x_continuous(labels = scales::number_format(big.mark = ",")) + 
+    labs(
+        title    = "Top Host by Total Earning",
+        x        = "Total Earning (in SGD)",
+        y        = "Host Name"
+    ) + 
+    theme_minimal() + 
+    theme(axis.text.x = element_text(size=9, angle = 90, face = "bold"),
+          axis.text.y = element_text(size=9,face = "bold"), plot.title=element_text(size=10, hjust=0.5, face="bold"),axis.title = element_text(size = 10))
+
+```
+We once again use the `grid.arrange()` function from the `GridExtra` library to view the two plots side-by-side to aid in direct  comparison.
+
+```{r}
+grid.arrange(top_host_by_listing, top_host_by_earning, ncol = 2)
+```
+
+We notice that quite a few names _Jay, Tia and Fiona_ appeared in both Top 10 lists.
+
+<br />
+
+
+#### 8. Is there any difference in review score between superhost and normal host? 
+
+Certain hosts receive the designation of _superhost_ which can be achieved by meeting [the following criteria](https://www.mashvisor.com/blog/what-does-superhost-mean-on-airbnb/):
+
+  1. 12 months experience as a host
+  2. Complete a minimum of 100 nights booked
+  3. Response rate 90% or higher
+  4. The consistent overall rating of 4.8 or higher
+  5. A cancellation rate less than 1%
+  6. At least 80% of all reviews are 5-star
+  
+In order to determine the difference in review score between superhosts and regular hosts, we use the `mutate()` function to create a new `logical` column  `host_is_superhost`.  
+
+```{r}
+q8 <- listing %>% 
+    left_join(host_info, by = "host_id") %>% 
+    select(host_id, host_name, review_scores_rating, host_is_superhost) %>% 
+    drop_na() %>% 
+    mutate(host_is_superhost = as.logical(host_is_superhost)) %>% 
+    select(review_scores_rating, host_is_superhost)
+```
+
+We then create two separate boxplots after isolating only the observations that match the respective `TRUE/FALSE` condition for the `host_is_superhost` column.
+
+```{r}
+q8_1 <- 
+    q8[q8$host_is_superhost == FALSE, ] %>% 
+    ggplot(aes(y = review_scores_rating, group = host_is_superhost)) + 
+    geom_boxplot(fill = "lightpink4") + 
+    labs(
+        title    = "Host Ratings",
+        x        = "Host",
+        y        = "Rating"
+    ) + theme_minimal()  + 
+    theme(axis.text.x = element_text(face = "bold"),
+          axis.text.y = element_text(face = "bold"),
+          plot.title = element_text(size=10)) 
+
+q8_2 <- 
+    q8[q8$host_is_superhost == TRUE, ] %>% 
+    ggplot(aes(y = review_scores_rating, group = host_is_superhost)) + 
+    geom_boxplot(fill = "lightpink1") + 
+    labs(
+        title    = "Superhost Ratings",
+        x        = "Superhost",
+        y        = "Rating"
+    ) + theme_minimal() + 
+    theme(axis.text.x = element_text(face = "bold"),
+          axis.text.y = element_text(face = "bold"),
+          plot.title = element_text(size=10))
+
+```
+
+Finally, we once again use the `grid.arrange()` function from the `GridExtra` library to view the two plots side-by-side to aid in direct comparison.
+
+```{r}
+grid.arrange(q8_1, 
+             q8_2, 
+             ncol = 2,
+             top = textGrob("Ratings Distribution",gp=gpar(font=2, fontsize=16)))
+```
+
+
+There appears to be a difference in review score, especially in terms of variance, between superhosts and regular hosts based off visual inspection with the average superhost rating also ranking slightly higher. Unfortunately, due to the non-normality of the data, we are unable to rely on a `t.test()` to verify statistically if our visual assumptions are correct.
+
+<br />
+
+
+#### 9. Is there any difference in response rate between superhost and normal host?
+
+We repeat the same process as the previous query to determine the difference in `response rate`
+
+```{r}
+q9 <- listing %>% 
+    left_join(host_info, by = "host_id") %>% 
+    select(host_id, host_name, host_response_rate, host_acceptance_rate, host_is_superhost) %>%
+    drop_na() %>% 
+    mutate(host_is_superhost = as.logical(host_is_superhost), 
+           # Transform acceptance rate and response rate
+           host_response_rate = host_response_rate %>% 
+               str_remove("[%]") %>% 
+               as.numeric(),
+           host_acceptance_rate = host_acceptance_rate %>% 
+               str_remove("[%]") %>% 
+               as.numeric()
+    )
+```
+
+```{r}
+q9_1 <- 
+    q9[q9$host_is_superhost == FALSE, ] %>% 
+    ggplot(aes(y = host_response_rate, group = host_is_superhost)) + 
+    geom_boxplot(fill = "lightpink4") + 
+    labs(
+        title    = "Host Response Rate",
+        x        = "Host",
+        y        = "Response Rate"
+    ) + theme_minimal()  + 
+    theme(axis.text.x = element_text(face = "bold"),
+          axis.text.y = element_text(face = "bold"),
+          plot.title = element_text(size=10)) 
+
+q9_2 <- 
+    q9[q9$host_is_superhost == TRUE, ] %>% 
+    ggplot(aes(y = host_response_rate, group = host_is_superhost)) + 
+    geom_boxplot(fill = "lightpink1") + 
+    labs(
+        title    = "Superhost Response Rate",
+        x        = "Superhost",
+        y        = "Response Rate"
+    ) + theme_minimal() + 
+    theme(axis.text.x = element_text(face = "bold"),
+          axis.text.y = element_text(face = "bold"),
+          plot.title = element_text(size=10))
+```
+
+
+```{r}
+grid.arrange(q9_1, q9_2, 
+             ncol = 2,
+             top = textGrob("Response Rate Distribution",gp=gpar(font=2, fontsize=16)))
+```
+
+
+We see here that regular hosts have a noticeably lower first quartile for `response rate` than the superhosts.
+Moreover, the superhost's response rate plot is extremely negatively skewed since majority of the superhost have a response rate of 100. There are only a few outliers for the set of superhosts and in moreover, the lowest response rate is at 70, a relatively high value. This indicates that response rate is a key factor of differentiating between regular and super hosts.
+
+<br />
+
+
+#### 10. What is the most commonly verified host information?
+
+Here we will answer this question applying same logic as we did on Question #4 for most common amenities.
+
+```{r}
+#Max amount of verified informations per host
+ncols_q10 <- max(str_count(na.omit(host_info$host_verifications), ",")) +1
+
+#Create list of column names
+colmn_q10 <- paste("col", 1:ncols_q10)
+
+
+#Create columns filled with all the verified informations
+q10<- host_info%>%
+  select(host_verifications) %>% 
+  filter(!host_verifications == "")%>%
+    separate(
+        col = host_verifications, 
+        sep= ",", 
+        into=colmn_q10,
+        remove = FALSE)
+
+#Pivot longer to prepare data into Data Base format
+q10<- pivot_longer(data=q10,
+                  cols = 'col 1':'col 3',
+                  names_to = "col_number",
+                  values_to = "separated_host_verifications")
+
+q10$separated_host_verifications <- trimws(q10$separated_host_verifications)
+```
+
+```{r}
+#Pipe to answer the question
+q10<- q10%>%
+    select(separated_host_verifications)%>%
+    group_by(separated_host_verifications)%>%
+    summarise(host_verifications_count=n())%>%
+    na.omit()%>%
+    arrange(desc(host_verifications_count))
+
+#ploting the answer for visual reference
+q10_plot<-q10 %>%
+  ggplot(aes(x = host_verifications_count, 
+             y = separated_host_verifications %>% reorder(host_verifications_count))) + 
+  geom_bar(stat="identity", position = "dodge", fill="lightpink3") + 
+  scale_x_continuous(labels = scales::number_format(big.mark = ",")) + 
+  labs(title    = "Most Common Verified Information",
+       x        = "Count",
+       y        = "Verified Information") + 
+  geom_text(aes(label = host_verifications_count), hjust = -0.5, size = 4)+
+  theme_minimal() + 
+  theme(axis.text = element_text(size = 10 ), axis.title = element_text(size = 10), plot.title = element_text(size=16,hjust=0.5, face="bold")) +
+  expand_limits(x = 900)
+
+q10_plot
+
+most_common_host_verifications<- q10%>%
+    kable(align = c("l", "c"),
+                 format.args = list(big.mark = ","),
+                 digits = 2)
+
+most_common_host_verifications
+
+```
+
+<br />
+
+
+#### 11. How has the number of hosts joining airbnb increased/decreased overtime?
+
+We begin by extracting and isolating the necessary data using the following steps:
+
+  1. Join together the two tables.
+  2. Select the relevant columns.
+  3. Convert `host_since_date` to the type `date` using the `as.Date()` function.
+  4. Separate the `host_since` column into three separate columns for `Year`, `month` and `day` respectively.
+  5. Discard the unnecessary `day` column.
+  6. Group by `Year` and `Month` and use the `count()` function to tabulate the results.
+  7. Construct the necessary columns for the resulting plot and table in the next step
+  8. Disregard any rows containing `NA` values
+
+```{r}
+q11 <- 
+    host_info %>%                                                     # 1
+    left_join(listing, by = "host_id") %>% 
+    select(host_id, host_since) %>%                                   # 2
+    mutate(host_since_date = as.Date(host_since)) %>%                 # 3
+    separate("host_since", c("Year", "Month", "Day"), sep = "-") %>%  # 4
+    select(-Day) %>%                                                  # 5
+    group_by(Year, Month) %>%                                         # 6
+    count(Year, Month) %>% 
+    ungroup() %>% 
+    mutate(year_month = paste0(Year, "-", Month, "-", "01"),          # 7
+           year_month_2 = paste0(Year, "-", Month), 
+           joined = n) %>% 
+    select(year_month, year_month_2, joined) %>% 
+    mutate(year_month = as.Date(year_month)) %>% 
+    drop_na()                                                         # 8
+
+q11 %>% arrange(desc(joined))
+```
+
+Next, we use the `ggplot` library's `geom_line()` function to plot the data as a time series.
+
+```{r}
+q11 %>% ggplot(aes(x = year_month, y = joined)) +
+  geom_line(size = 1.2, colour = "lightpink3") + 
+  scale_x_date(breaks = waiver(), date_breaks = "6 months") + 
+  theme_minimal() + 
+  theme(axis.text.x = element_text(angle = 45, face = "bold", vjust = 0.65), axis.text.y = element_text(face = "bold"),plot.title=element_text(size=16, face="bold")) + 
+  labs(
+        title    = "Number of hosts joined",
+        subtitle = "Shows the frequency rate at which new posts sign up for airbnb",
+        y        = "Joined",
+        x        = "Year/Month")
+```
+
+Since we are dealing with data over a number of years, it is helpful to also compile a list of the top 10 most active months in terms of new hosts
+
+```{r}
+q11 %>% 
+    select(-year_month) %>% 
+    mutate(year_month = as.yearmon(year_month_2)) %>% 
+    select(-year_month_2) %>% 
+    select(year_month, joined) %>% 
+    arrange(desc(joined)) %>% 
+    head(10) %>% kable(align = c("c", "c"))
+```
+
+We see that October has three months in the top 10, making it the busiest month in terms of new hosts joining the service. Also, majority of the top 10 `year_month` are from before 2018, indicating that there's a decline in hosts joining in recent years, as seen from the time series graph as well. 
+
+<br />
+
+
+#### Database Disconnect
+
+Finally, before exiting our program, disconnect from the database
+
+```{r}
+dbDisconnect(con)
+```
+
+
+## Conclusion
+
+We have demonstrated how to pull in real-world data, divide and clean the data into usable tables, insert the data into a database and then use that database to answer interesting questions that may help provide useful and actionable insights on which to base future decisions. `R` and its many libraries, specifically the `tidyverse`, provide a powerful framework with which to answer many interesting questions, often in only a few lines of code. We encourage you to come up with your own questions and see if you can answer them using the provided data.
